@@ -3,6 +3,9 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import validator from "validator";
 import { OAuth2Client } from 'google-auth-library';
+import { sendEmail } from "../config/emailConfig.js";
+import { welcomeTemplate, forgotPasswordTemplate } from "../utils/emailTemplates.js";
+import crypto from "crypto";
 
 // Login User
 const loginUser = async (req, res) => {
@@ -60,6 +63,14 @@ const registerUser = async (req, res) => {
 
         const user = await newUser.save();
         const token = createToken(user._id);
+
+        // Send Welcome Email (Non-blocking)
+        sendEmail({
+            to: email,
+            subject: "Welcome to FlavoHub! 🍕",
+            html: welcomeTemplate(name)
+        });
+
         res.json({ success: true, token });
 
     } catch (error) {
@@ -102,24 +113,123 @@ const googleLogin = async (req, res) => {
         res.json({ success: true, token: jwtToken });
 
     } catch (error) {
-        console.log(error);
-        res.json({ success: false, message: "Google Login Failed" });
+        console.error("Google Login Backend Error:", error);
+        res.json({ success: false, message: "Google Login Failed: " + error.message });
     }
 }
 
 const adminLogin = async (req, res) => {
     const { email, password } = req.body;
     try {
-        if (email === process.env.ADMIN_EMAIL && password === process.env.ADMIN_PASSWORD) {
-            const token = jwt.sign(email + password, process.env.JWT_SECRET);
+        const adminEmail = process.env.ADMIN_EMAIL?.trim();
+        const adminPassword = process.env.ADMIN_PASSWORD?.trim();
+        const inputEmail = email?.trim();
+        const inputPassword = password?.trim();
+
+        console.log(`Admin login attempt for email: ${inputEmail}`);
+
+        if (inputEmail === adminEmail && inputPassword === adminPassword) {
+            const token = jwt.sign({ email: adminEmail }, process.env.JWT_SECRET);
             res.json({ success: true, token });
         } else {
+            console.log(`Admin login failed: Credentials do not match.`);
             res.json({ success: false, message: "Invalid Admin Credentials" });
         }
     } catch (error) {
-        console.log(error);
+        console.error("Admin Login Error:", error);
         res.json({ success: false, message: "Error" });
     }
 }
 
-export { loginUser, registerUser, googleLogin, adminLogin };
+const listUsers = async (req, res) => {
+    try {
+        const users = await userModel.find({});
+        res.json({ success: true, data: users });
+    } catch (error) {
+        console.log(error);
+        res.json({ success: false, message: "Error fetching users" });
+    }
+}
+
+const forgotPassword = async (req, res) => {
+    const { email } = req.body;
+    try {
+        const user = await userModel.findOne({ email });
+        if (!user) {
+            return res.json({ success: false, message: "User not found" });
+        }
+
+        // Generate reset token
+        const resetToken = crypto.randomBytes(20).toString('hex');
+
+        // Hash and set resetPasswordToken field
+        user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+        // Set token expiry time (1 hour from now)
+        user.resetPasswordExpires = Date.now() + 3600000;
+
+        await user.save();
+
+        // Create reset URL
+        const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
+        try {
+            await sendEmail({
+                to: user.email,
+                subject: "FlavoHub - Password Reset Request 🔐",
+                html: forgotPasswordTemplate(user.name, resetUrl)
+            });
+
+            res.json({ success: true, message: "Reset link sent to your email" });
+        } catch (error) {
+            user.resetPasswordToken = undefined;
+            user.resetPasswordExpires = undefined;
+            await user.save();
+            return res.json({ success: false, message: "Email could not be sent" });
+        }
+
+    } catch (error) {
+        console.log(error);
+        res.json({ success: false, message: "Error processing forgot password" });
+    }
+}
+
+const resetPassword = async (req, res) => {
+    const { token, password } = req.body;
+    try {
+        // Hash the token from URL to compare it with the hashed token in DB
+        const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+        const user = await userModel.findOne({
+            resetPasswordToken: hashedToken,
+            resetPasswordExpires: { $gt: Date.now() }
+        });
+
+        if (!user) {
+            return res.json({ success: false, message: "Invalid or expired token" });
+        }
+
+        // Validating password length
+        if (password.length < 8) {
+            return res.json({ success: false, message: "Please enter a strong password (min 8 characters)" })
+        }
+
+        // Hashing new password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        user.password = hashedPassword;
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+
+        await user.save();
+
+        res.json({ success: true, message: "Password reset successful" });
+
+    } catch (error) {
+        console.log(error);
+        res.json({ success: false, message: "Error resetting password" });
+    }
+}
+
+export { loginUser, registerUser, googleLogin, adminLogin, listUsers, forgotPassword, resetPassword };

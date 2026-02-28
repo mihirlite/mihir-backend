@@ -1,6 +1,8 @@
 import orderModel from "../models/orderModel.js";
 import userModel from "../models/userModel.js";
 import { createNotification } from "./notificationController.js";
+import { sendEmail } from "../config/emailConfig.js";
+import { orderConfirmationTemplate, statusUpdateTemplate } from "../utils/emailTemplates.js";
 import Stripe from "stripe";
 import Razorpay from "razorpay";
 
@@ -29,6 +31,16 @@ const placeOrder = async (req, res) => {
 
         // Notify Admin
         await createNotification("admin", `New Order Received! Order #${newOrder._id.slice(-6)}`, newOrder._id);
+
+        // Send Order Confirmation Email
+        const user = await userModel.findById(req.body.userId);
+        if (user && user.email) {
+            sendEmail({
+                to: user.email,
+                subject: `Order Confirmed - #${newOrder._id.toString().slice(-6)} 🍔`,
+                html: orderConfirmationTemplate(newOrder)
+            });
+        }
 
         // Payment Logic Placeholder
         // For now treating as COD or simple success for the base structure
@@ -88,6 +100,16 @@ const updateStatus = async (req, res) => {
 
         // Trigger Notification
         await createNotification(order.userId, `Order Update: Your order #${req.body.orderId.slice(-6)} is now ${req.body.status}.`, req.body.orderId);
+
+        // Send Status Update Email
+        const user = await userModel.findById(order.userId);
+        if (user && user.email) {
+            sendEmail({
+                to: user.email,
+                subject: `Order Update: ${req.body.status} - #${req.body.orderId.slice(-6)} 🛵`,
+                html: statusUpdateTemplate(req.body.orderId, req.body.status)
+            });
+        }
 
         res.json({ success: true, message: "Status Updated" })
     } catch (error) {
