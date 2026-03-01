@@ -128,6 +128,11 @@ const adminLogin = async (req, res) => {
 
         console.log(`Admin login attempt for email: ${inputEmail}`);
 
+        if (!adminEmail || !adminPassword) {
+            console.error("Admin Login Error: ADMIN_EMAIL or ADMIN_PASSWORD environment variable is not defined.");
+            return res.json({ success: false, message: "Server Configuration Error: Missing Admin Credentials" });
+        }
+
         if (inputEmail === adminEmail && inputPassword === adminPassword) {
             const token = jwt.sign({ email: adminEmail }, process.env.JWT_SECRET);
             res.json({ success: true, token });
