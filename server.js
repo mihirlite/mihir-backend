@@ -9,6 +9,9 @@ import orderRouter from './routes/orderRoute.js';
 import wishlistRouter from './routes/wishlistRoute.js';
 import reviewRouter from './routes/reviewRoute.js';
 import notificationRouter from './routes/notificationRoute.js';
+import couponRouter from './routes/couponRoute.js';
+import deliveryRouter from './routes/deliveryRoute.js';
+import gstChargesRouter from './routes/gstChargesRoute.js';
 
 // App Config
 dotenv.config();
@@ -31,6 +34,9 @@ app.use("/api/order", orderRouter);
 app.use("/api/wishlist", wishlistRouter);
 app.use("/api/review", reviewRouter);
 app.use("/api/notification", notificationRouter);
+app.use("/api/coupon", couponRouter);
+app.use("/api/delivery", deliveryRouter);
+app.use("/api/gst-charges", gstChargesRouter);
 app.get('/', (req, res) => {
     res.send('API Working');
 });
