@@ -43,7 +43,10 @@ const markAsRead = async (req, res) => {
         }
 
         // Admin can mark any notification read, or user can mark their own
-        if (decoded === process.env.ADMIN_EMAIL + process.env.ADMIN_PASSWORD || notification.userId === decoded.id) {
+        const isAdmin = decoded.email && decoded.email === process.env.ADMIN_EMAIL;
+        const isOwner = decoded.id && notification.userId === decoded.id;
+
+        if (isAdmin || isOwner) {
             notification.read = true;
             await notification.save();
             res.json({ success: true, message: "Marked as read" });

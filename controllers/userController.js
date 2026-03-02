@@ -107,6 +107,13 @@ const googleLogin = async (req, res) => {
                 password: hashedPassword
             })
             await user.save();
+
+            // Send Welcome Email to new Google sign-up users
+            sendEmail({
+                to: email,
+                subject: "Welcome to FlavoHub! 🍕",
+                html: welcomeTemplate(name)
+            });
         }
 
         const jwtToken = createToken(user._id);

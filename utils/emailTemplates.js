@@ -45,9 +45,10 @@ export const orderConfirmationTemplate = (order) => `
         </div>
 
         <p><strong>Delivery Address:</strong><br>
-        ${order.address.street}, ${order.address.city}, ${order.address.state}</p>
+        📍 ${order.address.address}</p>
 
         <p><strong>Verification Code (OTP):</strong> <span style="font-size: 20px; font-weight: bold; color: #ff7e00;">${order.otp}</span></p>
+        <p style="font-size: 14px; font-weight: bold; color: #333;">Customer Phone: ${order.address.phone}</p>
         <p style="font-size: 12px; color: #666;">Please share this OTP with the delivery partner to receive your order.</p>
     </div>
     <div style="background-color: #f9f9f9; padding: 20px; text-align: center; font-size: 12px; color: #999;">
@@ -74,6 +75,31 @@ export const statusUpdateTemplate = (orderId, status) => `
     </div>
     <div style="background-color: #f9f9f9; padding: 20px; text-align: center; font-size: 12px; color: #999;">
         Team FlavoHub
+    </div>
+</div>
+`;
+
+export const deliveryConfirmationTemplate = (orderId, userName) => `
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; border-radius: 10px; overflow: hidden;">
+    <div style="background-color: #28a745; color: white; padding: 20px; text-align: center;">
+        <h2 style="margin: 0;">Order Delivered! ✅🎉</h2>
+        <p style="margin: 5px 0 0 0;">Order ID: #${orderId.slice(-6)}</p>
+    </div>
+    <div style="padding: 30px; color: #333;">
+        <h3 style="color: #28a745;">Enjoy your meal, ${userName || 'there'}!</h3>
+        <p>Your order <strong>#${orderId.slice(-6)}</strong> has been successfully delivered. We hope you have a fantastic dining experience!</p>
+        <div style="background-color: #f0fff4; padding: 20px; border-radius: 10px; text-align: center; margin: 20px 0; border-left: 4px solid #28a745;">
+            <span style="font-size: 36px;">🍽️</span>
+            <p style="font-size: 16px; font-weight: bold; color: #28a745; margin: 10px 0 0 0;">Bon Appétit!</p>
+        </div>
+        <p>Loved your food? We'd love to hear about it! Leave a review on our website and help others discover great dishes.</p>
+        <div style="text-align: center; margin: 30px 0;">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/myorders" style="background-color: #ff7e00; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold;">View My Orders</a>
+        </div>
+        <p>Thank you for ordering with us!<br>The FlavoHub Team 🍕</p>
+    </div>
+    <div style="background-color: #f9f9f9; padding: 20px; text-align: center; font-size: 12px; color: #999;">
+        &copy; 2026 FlavoHub. Delivered with love.
     </div>
 </div>
 `;
