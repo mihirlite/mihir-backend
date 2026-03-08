@@ -13,6 +13,6 @@ export const connectDB = async () => {
         console.log("DB Connected");
     } catch (error) {
         console.error("DB Connection Error:", error.message);
-        process.exit(1);
+        // Do not exit, allow server to stay up for debugging
     }
 }
