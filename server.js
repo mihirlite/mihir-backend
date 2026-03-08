@@ -20,7 +20,25 @@ const port = process.env.PORT || 4000;
 
 // Middleware
 app.use(express.json());
-app.use(cors());
+const allowedOrigins = [
+    "https://flavohub.com",
+    "http://localhost:5173",
+    "http://localhost:5174"
+];
+
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "token"],
+    credentials: true,
+    optionsSuccessStatus: 200
+}));
 
 // DB Connection
 connectDB();
