@@ -39,7 +39,7 @@ const placeOrder = async (req, res) => {
             merchantId: PHONEPE_MERCHANT_ID,
             merchantTransactionId: merchantTransactionId,
             merchantUserId: req.body.userId,
-            amount: req.body.amount * 100, // Amount in paise
+            amount: Math.round(req.body.amount * 100), // Amount in paise (must be integer)
             redirectUrl: `${FRONTEND_URL}/verify?orderId=${newOrder._id}`,
             redirectMode: "REDIRECT",
             callbackUrl: `${BACKEND_URL}/api/order/callback`,
@@ -70,16 +70,16 @@ const placeOrder = async (req, res) => {
 
         const response = await axios.request(options);
 
-        if (response.data.success) {
+        if (response.data.success && response.data.data.instrumentResponse.redirectInfo) {
             const redirectUrl = response.data.data.instrumentResponse.redirectInfo.url;
             res.json({ success: true, session_url: redirectUrl });
         } else {
-            res.json({ success: false, message: "Payment initiation failed" });
+            res.json({ success: false, message: response.data.message || "Payment initiation failed" });
         }
 
     } catch (error) {
         console.log("PhonePe Error:", error.response?.data || error.message);
-        res.json({ success: false, message: "Error" })
+        res.json({ success: false, message: error.response?.data?.message || "Internal Server Error during payment initiation" })
     }
 }
 
