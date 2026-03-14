@@ -17,9 +17,24 @@ const PHONEPE_STATUS_API_URL = process.env.PHONEPE_STATUS_API_URL;
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4000";
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
+// Helper to check if PhonePe config is complete
+const isPhonePeConfigComplete = () => {
+    return PHONEPE_MERCHANT_ID && PHONEPE_SALT_KEY && PHONEPE_SALT_INDEX && PHONEPE_API_URL;
+};
+
 // placing user order for frontend
 const placeOrder = async (req, res) => {
     try {
+        if (!isPhonePeConfigComplete()) {
+            console.error("PhonePe Config Missing:", {
+                MERCHANT_ID: !!PHONEPE_MERCHANT_ID,
+                SALT_KEY: !!PHONEPE_SALT_KEY,
+                SALT_INDEX: !!PHONEPE_SALT_INDEX,
+                API_URL: !!PHONEPE_API_URL
+            });
+            return res.json({ success: false, message: "Server configuration error: Payment gateway credentials missing. Please check backend environment variables." });
+        }
+
         const otp = Math.floor(1000 + Math.random() * 9000).toString();
         const merchantTransactionId = "MT" + Date.now() + Math.floor(Math.random() * 1000);
 
@@ -34,12 +49,18 @@ const placeOrder = async (req, res) => {
         await newOrder.save();
         await userModel.findByIdAndUpdate(req.body.userId, { cartData: {} });
 
+        // Amount in paise (must be integer and greater than 0)
+        const amountInPaise = Math.round(Number(req.body.amount) * 100);
+        if (isNaN(amountInPaise) || amountInPaise <= 0) {
+            return res.json({ success: false, message: "Invalid order amount" });
+        }
+
         // PhonePe Payment Payload
         const data = {
             merchantId: PHONEPE_MERCHANT_ID,
             merchantTransactionId: merchantTransactionId,
             merchantUserId: req.body.userId,
-            amount: Math.round(req.body.amount * 100), // Amount in paise (must be integer)
+            amount: amountInPaise,
             redirectUrl: `${FRONTEND_URL}/verify?orderId=${newOrder._id}`,
             redirectMode: "REDIRECT",
             callbackUrl: `${BACKEND_URL}/api/order/callback`,
@@ -51,9 +72,14 @@ const placeOrder = async (req, res) => {
 
         const payload = JSON.stringify(data);
         const payloadMain = Buffer.from(payload).toString('base64');
-        const string = payloadMain + "/pg/v1/pay" + PHONEPE_SALT_KEY;
+        
+        // Extract the endpoint path from the full URL for the checksum
+        const endpoint = "/pg/v1/pay";
+        const string = payloadMain + endpoint + PHONEPE_SALT_KEY;
         const sha256 = crypto.createHash('sha256').update(string).digest('hex');
         const checksum = sha256 + "###" + PHONEPE_SALT_INDEX;
+
+        console.log(`Initiating PhonePe payment for Merchant: ${PHONEPE_MERCHANT_ID}, Transaction: ${merchantTransactionId}`);
 
         const options = {
             method: 'POST',
