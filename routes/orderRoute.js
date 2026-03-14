@@ -1,5 +1,5 @@
 import express from 'express';
-import { placeOrder, verifyOrder, userOrders, listOrders, updateStatus, verifyOtp, getOrder } from '../controllers/orderController.js';
+import { placeOrder, verifyOrder, userOrders, listOrders, updateStatus, verifyOtp, getOrder, phonepeCallback, phonepeStatusCheck } from '../controllers/orderController.js';
 import authMiddleware from '../middleware/auth.js';
 import adminAuth from '../middleware/adminAuth.js';
 
@@ -12,5 +12,7 @@ orderRouter.post("/detail", authMiddleware, getOrder);
 orderRouter.get("/list", adminAuth, listOrders);
 orderRouter.post("/status", adminAuth, updateStatus);
 orderRouter.post("/verify-otp", adminAuth, verifyOtp);
+orderRouter.post("/callback", phonepeCallback);
+orderRouter.post("/status-check", phonepeStatusCheck);
 
 export default orderRouter;

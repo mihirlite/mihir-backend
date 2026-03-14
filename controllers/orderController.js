@@ -3,54 +3,150 @@ import userModel from "../models/userModel.js";
 import { createNotification } from "./notificationController.js";
 import { sendEmail } from "../config/emailConfig.js";
 import { orderConfirmationTemplate, statusUpdateTemplate, deliveryConfirmationTemplate } from "../utils/emailTemplates.js";
+import axios from "axios";
+import crypto from "crypto";
 import Stripe from "stripe";
 import Razorpay from "razorpay";
 
-// Global variables for payment gateways (initialized with env vars)
-// const stripe = new Stripe(process.env.STRIPE_SECRET_KEY); 
-// const razorpay = new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret: process.env.RAZORPAY_KEY_SECRET });
+// PhonePe Configuration
+const PHONEPE_MERCHANT_ID = process.env.PHONEPE_MERCHANT_ID;
+const PHONEPE_SALT_KEY = process.env.PHONEPE_SALT_KEY;
+const PHONEPE_SALT_INDEX = process.env.PHONEPE_SALT_INDEX;
+const PHONEPE_API_URL = process.env.PHONEPE_API_URL;
+const PHONEPE_STATUS_API_URL = process.env.PHONEPE_STATUS_API_URL;
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4000";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 
 // placing user order for frontend
 const placeOrder = async (req, res) => {
-    const frontend_url = "http://localhost:5173";
-
     try {
         const otp = Math.floor(1000 + Math.random() * 9000).toString();
+        const merchantTransactionId = "MT" + Date.now() + Math.floor(Math.random() * 1000);
+
         const newOrder = new orderModel({
             userId: req.body.userId,
             items: req.body.items,
             amount: req.body.amount,
             address: req.body.address,
-            otp: otp
+            otp: otp,
+            merchantTransactionId: merchantTransactionId
         })
         await newOrder.save();
         await userModel.findByIdAndUpdate(req.body.userId, { cartData: {} });
 
-        // Trigger Notification
-        await createNotification(req.body.userId, `Success! Your order #${newOrder._id.toString().slice(-6)} has been placed.`, newOrder._id);
+        // PhonePe Payment Payload
+        const data = {
+            merchantId: PHONEPE_MERCHANT_ID,
+            merchantTransactionId: merchantTransactionId,
+            merchantUserId: req.body.userId,
+            amount: req.body.amount * 100, // Amount in paise
+            redirectUrl: `${FRONTEND_URL}/verify?orderId=${newOrder._id}`,
+            redirectMode: "REDIRECT",
+            callbackUrl: `${BACKEND_URL}/api/order/callback`,
+            mobileNumber: req.body.address.phone,
+            paymentInstrument: {
+                type: "PAY_PAGE"
+            },
+        };
 
-        // Notify Admin
-        await createNotification("admin", `New Order Received! Order #${newOrder._id.toString().slice(-6)}`, newOrder._id);
+        const payload = JSON.stringify(data);
+        const payloadMain = Buffer.from(payload).toString('base64');
+        const string = payloadMain + "/pg/v1/pay" + PHONEPE_SALT_KEY;
+        const sha256 = crypto.createHash('sha256').update(string).digest('hex');
+        const checksum = sha256 + "###" + PHONEPE_SALT_INDEX;
 
-        // Send Order Confirmation Email
-        const user = await userModel.findById(req.body.userId);
-        if (user && user.email) {
-            await sendEmail({
-                to: user.email,
-                subject: `Order Confirmed - #${newOrder._id.toString().slice(-6)} 🍔`,
-                html: orderConfirmationTemplate(newOrder)
-            });
+        const options = {
+            method: 'POST',
+            url: PHONEPE_API_URL,
+            headers: {
+                accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-VERIFY': checksum
+            },
+            data: {
+                request: payloadMain
+            }
+        };
+
+        const response = await axios.request(options);
+
+        if (response.data.success) {
+            const redirectUrl = response.data.data.instrumentResponse.redirectInfo.url;
+            res.json({ success: true, session_url: redirectUrl });
+        } else {
+            res.json({ success: false, message: "Payment initiation failed" });
         }
 
-        // Payment Logic Placeholder
-        // For now treating as COD or simple success for the base structure
-        // In real Razorpay integration, we would create an order on Razorpay here
-
-        res.json({ success: true, session_url: `${frontend_url}/verify?success=true&orderId=${newOrder._id}` })
-
     } catch (error) {
-        console.log(error);
+        console.log("PhonePe Error:", error.response?.data || error.message);
         res.json({ success: false, message: "Error" })
+    }
+}
+
+const phonepeCallback = async (req, res) => {
+    try {
+        const { response } = req.body;
+        const decodedResponse = Buffer.from(response, 'base64').toString('utf-8');
+        const jsonResponse = JSON.parse(decodedResponse);
+
+        const { merchantTransactionId, success, code } = jsonResponse;
+
+        if (success && code === "PAYMENT_SUCCESS") {
+            const order = await orderModel.findOneAndUpdate(
+                { merchantTransactionId: merchantTransactionId },
+                { payment: true, paymentResponse: jsonResponse }
+            );
+
+            if (order) {
+                // Trigger success notifications
+                await createNotification(order.userId, `Success! Your payment for order #${order._id.toString().slice(-6)} has been received.`, order._id);
+            }
+        } else {
+            console.log(`Payment failed for transaction: ${merchantTransactionId}`);
+        }
+
+        res.status(200).send("OK");
+    } catch (error) {
+        console.error("Callback Error:", error);
+        res.status(500).send("Error");
+    }
+}
+
+const phonepeStatusCheck = async (req, res) => {
+    const { orderId } = req.body;
+    try {
+        const order = await orderModel.findById(orderId);
+        if (!order) {
+            return res.json({ success: false, message: "Order not found" });
+        }
+
+        const merchantTransactionId = order.merchantTransactionId;
+        const string = `/pg/v1/status/${PHONEPE_MERCHANT_ID}/${merchantTransactionId}` + PHONEPE_SALT_KEY;
+        const sha256 = crypto.createHash('sha256').update(string).digest('hex');
+        const checksum = sha256 + "###" + PHONEPE_SALT_INDEX;
+
+        const options = {
+            method: 'GET',
+            url: `${PHONEPE_STATUS_API_URL}/${PHONEPE_MERCHANT_ID}/${merchantTransactionId}`,
+            headers: {
+                accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-VERIFY': checksum,
+                'X-MERCHANT-ID': PHONEPE_MERCHANT_ID
+            }
+        };
+
+        const response = await axios.request(options);
+
+        if (response.data.success && response.data.code === "PAYMENT_SUCCESS") {
+            await orderModel.findByIdAndUpdate(orderId, { payment: true, paymentResponse: response.data });
+            res.json({ success: true, message: "Paid" });
+        } else {
+            res.json({ success: false, message: response.data.message || "Not Paid" });
+        }
+    } catch (error) {
+        console.error("Status Check Error:", error.response?.data || error.message);
+        res.json({ success: false, message: "Error checking status" });
     }
 }
 
@@ -167,4 +263,4 @@ const getOrder = async (req, res) => {
     }
 }
 
-export { placeOrder, verifyOrder, userOrders, listOrders, updateStatus, verifyOtp, getOrder }
+export { placeOrder, verifyOrder, userOrders, listOrders, updateStatus, verifyOtp, getOrder, phonepeCallback, phonepeStatusCheck }

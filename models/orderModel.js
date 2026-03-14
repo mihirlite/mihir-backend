@@ -8,7 +8,9 @@ const orderSchema = new mongoose.Schema({
     status: { type: String, default: "Food Processing" },
     date: { type: Date, default: Date.now() },
     payment: { type: Boolean, default: false },
-    otp: { type: String }
+    otp: { type: String },
+    merchantTransactionId: { type: String },
+    paymentResponse: { type: Object }
 })
 
 const orderModel = mongoose.models.order || mongoose.model("order", orderSchema);
